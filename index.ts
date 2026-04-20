@@ -32,13 +32,15 @@ function windowsToastScript(title: string, body: string): string {
     ].join("; ");
 }
 
-function wrapForTmux(sequence: string): string {
+export function wrapForTmux(sequence: string): string {
     if (!process.env.TMUX) return sequence;
 
     // tmux passthrough: wrap in DCS and escape inner ESC bytes.
     const escaped = sequence.split("\x1b").join("\x1b\x1b");
     return `\x1bPtmux;${escaped}\x1b\\`;
 }
+
+// --- Terminal notification functions (side-effectful, mocked in tests) ---
 
 function notifyOSC777(title: string, body: string): void {
     const sequence = `\x1b]777;notify;${title};${body}\x07`;
@@ -147,7 +149,7 @@ function runSoundHook(): void {
 /**
  * Truncate a string to `max` characters, appending "…" if truncated.
  */
-function truncate(str: string, max: number): string {
+export function truncate(str: string, max: number): string {
     if (str.length <= max) return str;
     return str.slice(0, max - 1) + "…";
 }
@@ -156,12 +158,12 @@ function truncate(str: string, max: number): string {
  * Extract the text content from the last assistant message in the agent response.
  * Falls back to a generic message if none is found.
  */
-interface TextContentBlock {
+export interface TextContentBlock {
     type: "text";
     text: string;
 }
 
-interface AssistantMessage {
+export interface AssistantMessage {
     role: "assistant";
     content: (TextContentBlock | { type: string; [key: string]: unknown })[];
     usage: {
@@ -170,19 +172,22 @@ interface AssistantMessage {
         cacheRead: number;
         cacheWrite: number;
         totalTokens: number;
+        cost?: {
+            total: number;
+        };
     };
     stopReason: "stop" | "length" | "toolUse" | "error" | "aborted";
     errorMessage?: string;
     timestamp: number;
 }
 
-interface AgentMessage {
+export interface AgentMessage {
     role: string;
     content?: unknown;
     [key: string]: unknown;
 }
 
-function extractAssistantSummary(messages: AgentMessage[]): string {
+export function extractAssistantSummary(messages: AgentMessage[]): string {
     // Walk messages in reverse to find the last assistant message
     for (let i = messages.length - 1; i >= 0; i--) {
         const msg = messages[i] as AssistantMessage;
@@ -206,7 +211,7 @@ function extractAssistantSummary(messages: AgentMessage[]): string {
     return "Ready for input";
 }
 
-function notify(title: string, body: string, sessionName?: string): void {
+export function notify(title: string, body: string, sessionName?: string): void {
     const isIterm2 = process.env.TERM_PROGRAM === "iTerm.app" || Boolean(process.env.ITERM_SESSION_ID);
 
     if (process.env.WT_SESSION) {

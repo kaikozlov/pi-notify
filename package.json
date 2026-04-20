@@ -32,5 +32,15 @@
         "repo": "ferologics/pi-notify",
         "branch": "master",
         "subtreePublishRecipe": "publish-pi-notify"
+    },
+    "main": "index.js",
+    "scripts": {
+        "test": "node --import tsx --test test/*.test.ts"
+    },
+    "type": "commonjs",
+    "devDependencies": {
+        "@types/node": "^25.6.0",
+        "tsx": "^4.21.0",
+        "typescript": "^6.0.3"
     }
 }
