@@ -6,6 +6,7 @@ import {
     extractToolSummary,
     mapStopReasonToPriority,
     formatElapsed,
+    resolveClickUrl,
     buildNtfyBody,
     formatUsage,
     wrapForTmux,
@@ -210,6 +211,55 @@ describe("formatElapsed", () => {
 
     it("formats sub-second as 0s", () => {
         assert.equal(formatElapsed(500), "⏱ Completed in 0s");
+    });
+});
+
+// --- resolveClickUrl ---
+
+describe("resolveClickUrl", () => {
+    beforeEach(() => {
+        delete process.env.PI_NOTIFY_NTFY_CLICK;
+        delete process.env.PI_NOTIFY_NTFY_CLICK_SCHEME;
+    });
+
+    it("returns undefined when nothing configured", () => {
+        assert.equal(resolveClickUrl("/home/user/project"), undefined);
+    });
+
+    it("returns explicit PI_NOTIFY_NTFY_CLICK when set", () => {
+        process.env.PI_NOTIFY_NTFY_CLICK = "https://example.com";
+        assert.equal(resolveClickUrl("/home/user/project"), "https://example.com");
+    });
+
+    it("generates vscode URI from scheme", () => {
+        process.env.PI_NOTIFY_NTFY_CLICK_SCHEME = "vscode";
+        assert.equal(resolveClickUrl("/home/user/project"), "vscode://file//home/user/project");
+    });
+
+    it("generates cursor URI from scheme", () => {
+        process.env.PI_NOTIFY_NTFY_CLICK_SCHEME = "cursor";
+        assert.equal(resolveClickUrl("/home/user/project"), "cursor://file//home/user/project");
+    });
+
+    it("generates zed URI from scheme", () => {
+        process.env.PI_NOTIFY_NTFY_CLICK_SCHEME = "zed";
+        assert.equal(resolveClickUrl("/home/user/project"), "zed://file/home/user/project");
+    });
+
+    it("resolves {cwd} in custom template", () => {
+        process.env.PI_NOTIFY_NTFY_CLICK_SCHEME = "myapp://open?path={cwd}";
+        assert.equal(resolveClickUrl("/home/user/project"), "myapp://open?path=/home/user/project");
+    });
+
+    it("prefers explicit CLICK over scheme", () => {
+        process.env.PI_NOTIFY_NTFY_CLICK = "https://example.com";
+        process.env.PI_NOTIFY_NTFY_CLICK_SCHEME = "vscode";
+        assert.equal(resolveClickUrl("/home/user/project"), "https://example.com");
+    });
+
+    it("returns undefined when scheme set but no cwd", () => {
+        process.env.PI_NOTIFY_NTFY_CLICK_SCHEME = "vscode";
+        assert.equal(resolveClickUrl(), undefined);
     });
 });
 

@@ -80,7 +80,35 @@ function notifyWindows(title: string, body: string): void {
  *   - Request body = message
  *   - Headers: Title, Priority, Tags, Actions
  */
-function notifyNtfy(title: string, body: string, options?: { priority?: string }): void {
+/**
+ * Resolve the click URL from env vars and optional CWD.
+ *
+ * Priority:
+ * 1. PI_NOTIFY_NTFY_CLICK (explicit URL)
+ * 2. PI_NOTIFY_NTFY_CLICK_SCHEME + cwd (auto-generated IDE URI)
+ */
+export function resolveClickUrl(cwd?: string): string | undefined {
+    const explicit = process.env.PI_NOTIFY_NTFY_CLICK?.trim();
+    if (explicit) return explicit;
+
+    const scheme = process.env.PI_NOTIFY_NTFY_CLICK_SCHEME?.trim();
+    if (!scheme || !cwd) return undefined;
+
+    // Support both shorthand and full scheme names
+    const schemes: Record<string, string> = {
+        vscode: "vscode://file/",
+        cursor: "cursor://file/",
+        zed: "zed://file",
+    };
+
+    const prefix = schemes[scheme];
+    if (prefix) return `${prefix}${cwd}`;
+
+    // Treat as custom URL template — replace {cwd} placeholder
+    return scheme.replace("{cwd}", cwd);
+}
+
+function notifyNtfy(title: string, body: string, options?: { priority?: string; cwd?: string }): void {
     const ntfyUrl = process.env.PI_NOTIFY_NTFY?.trim();
     if (!ntfyUrl) return;
 
@@ -93,8 +121,8 @@ function notifyNtfy(title: string, body: string, options?: { priority?: string }
             "Markdown": "yes",
         };
 
-        // Optional click action: open the terminal / pi session
-        const clickUrl = process.env.PI_NOTIFY_NTFY_CLICK?.trim();
+        // Resolve click URL from env vars and/or CWD
+        const clickUrl = resolveClickUrl(options?.cwd);
         if (clickUrl) {
             headers["Actions"] = `view, Open, ${clickUrl}`;
         }
@@ -333,7 +361,7 @@ export function buildNtfyBody(summary: string, options?: NtfyBodyOptions): strin
     return parts.join("\n");
 }
 
-export function notify(title: string, body: string, sessionName?: string, ntfyOptions?: NtfyBodyOptions & { stopReason?: string }): void {
+export function notify(title: string, body: string, sessionName?: string, ntfyOptions?: NtfyBodyOptions & { stopReason?: string; cwd?: string }): void {
     const isIterm2 = process.env.TERM_PROGRAM === "iTerm.app" || Boolean(process.env.ITERM_SESSION_ID);
 
     if (process.env.WT_SESSION) {
@@ -353,7 +381,7 @@ export function notify(title: string, body: string, sessionName?: string, ntfyOp
     // Use explicit env var priority if set, otherwise derive from stopReason
     const ntfyPriority = process.env.PI_NOTIFY_NTFY_PRIORITY?.trim()
         ?? (ntfyOptions?.stopReason ? mapStopReasonToPriority(ntfyOptions.stopReason) : undefined);
-    notifyNtfy("Pi", ntfyBody, { priority: ntfyPriority });
+    notifyNtfy("Pi", ntfyBody, { priority: ntfyPriority, cwd: ntfyOptions?.cwd });
 }
 
 // Module-level tracker for agent start time
@@ -387,6 +415,7 @@ export default function (pi: ExtensionAPI) {
             toolSummary: toolSummary || undefined,
             stopReason: lastAssistant?.stopReason,
             elapsedMs,
+            cwd: ctx.cwd,
         });
     });
 }
