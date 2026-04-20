@@ -7,6 +7,7 @@ import {
     mapStopReasonToPriority,
     formatElapsed,
     resolveClickUrl,
+    buildNtfyActions,
     buildNtfyBody,
     formatUsage,
     wrapForTmux,
@@ -260,6 +261,51 @@ describe("resolveClickUrl", () => {
     it("returns undefined when scheme set but no cwd", () => {
         process.env.PI_NOTIFY_NTFY_CLICK_SCHEME = "vscode";
         assert.equal(resolveClickUrl(), undefined);
+    });
+});
+
+// --- buildNtfyActions ---
+
+describe("buildNtfyActions", () => {
+    beforeEach(() => {
+        delete process.env.PI_NOTIFY_NTFY_CLICK;
+        delete process.env.PI_NOTIFY_NTFY_CLICK_SCHEME;
+    });
+
+    it("returns undefined when nothing configured", () => {
+        assert.equal(buildNtfyActions("/home/user/project"), undefined);
+    });
+
+    it("returns single action for explicit click URL", () => {
+        process.env.PI_NOTIFY_NTFY_CLICK = "https://example.com";
+        const actions = buildNtfyActions();
+        assert.deepEqual(JSON.parse(actions!), [
+            { action: "view", label: "Open in IDE", url: "https://example.com" },
+        ]);
+    });
+
+    it("returns two actions for vscode scheme with cwd", () => {
+        process.env.PI_NOTIFY_NTFY_CLICK_SCHEME = "vscode";
+        const actions = buildNtfyActions("/home/user/project");
+        const parsed = JSON.parse(actions!);
+        assert.equal(parsed.length, 2);
+        assert.equal(parsed[0].label, "Open in IDE");
+        assert.equal(parsed[0].url, "vscode://file//home/user/project");
+        assert.equal(parsed[1].label, "View Changes");
+        assert.equal(parsed[1].url, "vscode://vscode.scm");
+    });
+
+    it("returns single action for zed scheme (no SCM URL)", () => {
+        process.env.PI_NOTIFY_NTFY_CLICK_SCHEME = "zed";
+        const actions = buildNtfyActions("/home/user/project");
+        const parsed = JSON.parse(actions!);
+        assert.equal(parsed.length, 1);
+        assert.equal(parsed[0].url, "zed://file/home/user/project");
+    });
+
+    it("returns undefined when scheme set but no cwd", () => {
+        process.env.PI_NOTIFY_NTFY_CLICK_SCHEME = "vscode";
+        assert.equal(buildNtfyActions(), undefined);
     });
 });
 

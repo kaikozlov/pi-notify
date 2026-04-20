@@ -108,6 +108,38 @@ export function resolveClickUrl(cwd?: string): string | undefined {
     return scheme.replace("{cwd}", cwd);
 }
 
+/**
+ * Build the ntfy Actions header value.
+ * Supports multiple action buttons (ntfy allows up to 3).
+ */
+export function buildNtfyActions(cwd?: string): string | undefined {
+    const actions: Array<{ action: string; label: string; url: string }> = [];
+
+    // Primary: Open in IDE
+    const clickUrl = resolveClickUrl(cwd);
+    if (clickUrl) {
+        actions.push({ action: "view", label: "Open in IDE", url: clickUrl });
+    }
+
+    // Optional: View git changes (SCM panel)
+    const scheme = process.env.PI_NOTIFY_NTFY_CLICK_SCHEME?.trim();
+    if (cwd && scheme) {
+        const schemes: Record<string, string> = {
+            vscode: "vscode://vscode.scm",
+            cursor: "cursor://cursor.scm",
+        };
+        const scmUrl = schemes[scheme];
+        if (scmUrl) {
+            actions.push({ action: "view", label: "View Changes", url: scmUrl });
+        }
+    }
+
+    if (actions.length === 0) return undefined;
+
+    // ntfy Actions header format: JSON array
+    return JSON.stringify(actions);
+}
+
 function notifyNtfy(title: string, body: string, options?: { priority?: string; cwd?: string; tags?: string }): void {
     const ntfyUrl = process.env.PI_NOTIFY_NTFY?.trim();
     if (!ntfyUrl) return;
@@ -121,10 +153,10 @@ function notifyNtfy(title: string, body: string, options?: { priority?: string; 
             "Markdown": "yes",
         };
 
-        // Resolve click URL from env vars and/or CWD
-        const clickUrl = resolveClickUrl(options?.cwd);
-        if (clickUrl) {
-            headers["Actions"] = `view, Open, ${clickUrl}`;
+        // Build action buttons from env and CWD
+        const actionsHeader = buildNtfyActions(options?.cwd);
+        if (actionsHeader) {
+            headers["Actions"] = actionsHeader;
         }
 
         // Optional auth token or basic auth
