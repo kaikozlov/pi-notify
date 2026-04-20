@@ -111,7 +111,7 @@ function notifyNtfy(title: string, body: string): void {
         const { request: secureRequest } = require("node:https");
         const reqFn = url.protocol === "https:" ? secureRequest : request;
 
-        const req = reqFn(url, { method: "POST", headers }, (res: any) => {
+        const req = reqFn(url, { method: "POST", headers }, (res: import("node:http").IncomingMessage) => {
             // Consume response to free the connection
             res.resume();
         });
@@ -156,17 +156,43 @@ function truncate(str: string, max: number): string {
  * Extract the text content from the last assistant message in the agent response.
  * Falls back to a generic message if none is found.
  */
-function extractAssistantSummary(messages: any[]): string {
+interface TextContentBlock {
+    type: "text";
+    text: string;
+}
+
+interface AssistantMessage {
+    role: "assistant";
+    content: (TextContentBlock | { type: string; [key: string]: unknown })[];
+    usage: {
+        input: number;
+        output: number;
+        cacheRead: number;
+        cacheWrite: number;
+        totalTokens: number;
+    };
+    stopReason: "stop" | "length" | "toolUse" | "error" | "aborted";
+    errorMessage?: string;
+    timestamp: number;
+}
+
+interface AgentMessage {
+    role: string;
+    content?: unknown;
+    [key: string]: unknown;
+}
+
+function extractAssistantSummary(messages: AgentMessage[]): string {
     // Walk messages in reverse to find the last assistant message
     for (let i = messages.length - 1; i >= 0; i--) {
-        const msg = messages[i];
-        if (msg?.role !== "assistant") continue;
+        const msg = messages[i] as AssistantMessage;
+        if (msg.role !== "assistant") continue;
 
         const content = Array.isArray(msg.content) ? msg.content : [];
         // Collect all text blocks (skip thinking, toolCall, etc.)
         const textParts: string[] = [];
         for (const block of content) {
-            if (block?.type === "text" && block.text?.trim()) {
+            if ("type" in block && block.type === "text" && "text" in block && block.text.trim()) {
                 textParts.push(block.text.trim());
             }
         }
@@ -202,7 +228,10 @@ function notify(title: string, body: string, sessionName?: string): void {
 }
 
 export default function (pi: ExtensionAPI) {
-    pi.on("agent_end", async (event) => {
+    pi.on("agent_end", async (event, ctx) => {
+        // Only notify for interactive sessions (skip print mode / JSON mode)
+        if (!ctx.hasUI) return;
+
         const sessionName = pi.getSessionName();
         const title = sessionName ? `Pi — ${sessionName}` : "Pi";
 
