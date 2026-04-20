@@ -1,6 +1,6 @@
 # pi-notify
 
-A [Pi](https://github.com/badlogic/pi-mono) extension that sends a notification when the agent finishes and is waiting for input.
+A [Pi](https://github.com/mariozechner/pi-coding-agent) extension that sends a notification when the agent finishes and is waiting for input.
 
 Supports native terminal notifications **and** push notifications to your phone via [ntfy.sh](https://ntfy.sh).
 
@@ -56,7 +56,7 @@ Clicking the terminal notification focuses the terminal window/tab.
 
 [ntfy.sh](https://ntfy.sh) is a free, open-source push notification service. It lets you receive Pi notifications on your phone (or any device) even when you're not looking at the terminal.
 
-### Setup
+### Quick start
 
 1. Install the [ntfy app](https://ntfy.sh) on your phone (iOS/Android)
 2. Subscribe to a topic in the app (e.g. `pi-notify-myname`)
@@ -70,11 +70,99 @@ That's it! When Pi finishes, you'll get a push notification on your phone.
 
 > **Tip:** Use a hard-to-guess topic name (or use a private ntfy server) since topic names are publicly accessible.
 
-### Self-hosted ntfy server
+### Notification body
+
+ntfy notifications are rendered as **markdown** in the mobile apps and web UI. The body includes:
+
+```
+**My Session Name**
+
+I've refactored the auth module to use JWT tokens. Changes include...
+
+⚙️ 1,247 tokens • $0.003
+
+🔧 bash(2) edit(3) read(5)
+
+⏱ Completed in 2m 34s
+```
+
+- **Bold session name** — from Pi's session name
+- **Response summary** — first paragraph of Pi's last message
+- **Token usage & cost** — input/output tokens and estimated cost
+- **Tool call summary** — which tools were used and how many times
+- **Elapsed time** — how long the agent ran
+
+### Smart priority
+
+The notification priority is automatically set based on how the agent finished:
+
+| Agent result              | ntfy Priority | On your phone           |
+| ------------------------- | ------------- | ----------------------- |
+| Clean finish (`stop`)     | `default`     | Normal notification     |
+| Wants to continue         | `high`        | Prominent alert         |
+| Hit max output tokens     | `high`        | Prominent alert         |
+| Something went wrong      | `urgent`      | Immediate + sound       |
+| Cancelled by user         | *(skipped)*   | No notification sent    |
+
+Set `PI_NOTIFY_NTFY_PRIORITY` to override this behavior with a fixed priority.
+
+### Error notifications
+
+When the agent stops with an error, the notification gets special treatment:
+
+- **Title:** `⚠️ Pi Error`
+- **Priority:** `urgent`
+- **Tag:** 🔴 `rotating_light`
+- **Body:** includes the error message with ⚠️ prefix
+
+### Click actions
+
+Tapping a notification can open the project in your IDE. Set a click scheme:
 
 ```bash
-export PI_NOTIFY_NTFY="https://ntfy.myserver.com/my-topic"
+# Shorthand — auto-generates IDE URI from the project directory
+export PI_NOTIFY_NTFY_CLICK_SCHEME="vscode"   # vscode://file/{cwd}
+export PI_NOTIFY_NTFY_CLICK_SCHEME="cursor"   # cursor://file/{cwd}
+export PI_NOTIFY_NTFY_CLICK_SCHEME="zed"      # zed://file{cwd}
+
+# Or a custom URL template
+export PI_NOTIFY_NTFY_CLICK_SCHEME="myapp://open?path={cwd}"
 ```
+
+For VS Code and Cursor, a **"View Changes"** button is also added that opens the SCM panel.
+
+Alternatively, set an explicit URL (no template resolution):
+
+```bash
+export PI_NOTIFY_NTFY_CLICK="https://your-ci-dashboard.com"
+```
+
+### Per-project topics
+
+Use template tokens in your topic URL to get separate notification channels per project:
+
+```bash
+# {project} resolves to the directory basename
+export PI_NOTIFY_NTFY="https://ntfy.sh/pi-{project}"
+# → https://ntfy.sh/pi-my-app  (when working in ~/dev/my-app)
+
+# {cwd} resolves to the full working directory
+export PI_NOTIFY_NTFY="https://ntfy.sh/work-{project}"
+# → https://ntfy.sh/work-pi-notify  (when working in ~/dev/pi-notify)
+```
+
+This lets you subscribe to different topics per project in the ntfy app, so you can mute or prioritize them independently.
+
+### Keep-alive notifications
+
+For long-running tasks, optionally send periodic "still working" notifications so you know Pi hasn't stalled:
+
+```bash
+# Minimum minutes between keep-alive notifications (0 = disabled, default)
+export PI_NOTIFY_NTFY_KEEPALIVE="5"
+```
+
+Keep-alive notifications use `min` priority (no vibration/sound) and include the current turn number and elapsed time.
 
 ### Authentication
 
@@ -89,24 +177,28 @@ export PI_NOTIFY_NTFY_USER="myuser"
 export PI_NOTIFY_NTFY_PASS="mypass"
 ```
 
-### Optional settings
+### Self-hosted ntfy server
 
 ```bash
-# Priority: min, low, default, high, urgent
-export PI_NOTIFY_NTFY_PRIORITY="high"
-
-# Emoji tags (comma-separated, see ntfy docs)
-export PI_NOTIFY_NTFY_TAGS="robot,white_check_mark"
-
-# Click action URL (opens when tapping the notification)
-export PI_NOTIFY_NTFY_CLICK="https://your-ci-dashboard.com"
+export PI_NOTIFY_NTFY="https://ntfy.myserver.com/my-topic"
 ```
 
-All `PI_NOTIFY_NTFY_*` variables are optional except `PI_NOTIFY_NTFY` itself. The push notification fires alongside the terminal notification — you get both.
+## Configuration Reference
 
-### How it works
+| Variable | Default | Description |
+|---|---|---|
+| `PI_NOTIFY_NTFY` | *(none)* | ntfy topic URL. Required for push notifications. Supports `{project}` and `{cwd}` templates. |
+| `PI_NOTIFY_NTFY_TOKEN` | *(none)* | Bearer token for ntfy auth |
+| `PI_NOTIFY_NTFY_USER` | *(none)* | Basic auth username |
+| `PI_NOTIFY_NTFY_PASS` | *(none)* | Basic auth password |
+| `PI_NOTIFY_NTFY_PRIORITY` | auto | Override auto-detected priority. Values: `min`, `low`, `default`, `high`, `urgent` |
+| `PI_NOTIFY_NTFY_TAGS` | `white_check_mark` | Emoji tags for notifications (comma-separated) |
+| `PI_NOTIFY_NTFY_CLICK` | *(none)* | Explicit click URL (takes priority over `CLICK_SCHEME`) |
+| `PI_NOTIFY_NTFY_CLICK_SCHEME` | *(none)* | IDE scheme shorthand: `vscode`, `cursor`, `zed`, or a custom `{cwd}` template |
+| `PI_NOTIFY_NTFY_KEEPALIVE` | `0` | Minutes between keep-alive notifications during long tasks (`0` = disabled) |
+| `PI_NOTIFY_SOUND_CMD` | *(none)* | Shell command to run on each notification (detached, non-blocking) |
 
-The extension sends a simple HTTP POST to your ntfy topic URL. The request body is the notification message, with `Title`, `Priority`, and `Tags` headers. It's fire-and-forget: errors are silently ignored so they never break the terminal notification.
+All `PI_NOTIFY_*` variables are optional. Set `PI_NOTIFY_NTFY` to enable push notifications; everything else is opt-in enhancement.
 
 ## Optional: Custom sound hook
 
