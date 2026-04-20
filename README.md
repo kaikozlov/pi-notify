@@ -1,6 +1,8 @@
 # pi-notify
 
-A [Pi](https://github.com/badlogic/pi-mono) extension that sends a native desktop notification when the agent finishes and is waiting for input.
+A [Pi](https://github.com/badlogic/pi-mono) extension that sends a notification when the agent finishes and is waiting for input.
+
+Supports native terminal notifications **and** push notifications to your phone via [ntfy.sh](https://ntfy.sh).
 
 ![pi-notify demo](demo.gif)
 
@@ -48,7 +50,63 @@ When Pi's agent finishes (`agent_end` event), the extension sends a notification
 - **tmux passthrough**: OSC sequences are wrapped automatically when `TMUX` is set
 - **Windows toast** (Windows Terminal): PowerShell notification, detected via `WT_SESSION`
 
-Clicking the notification focuses the terminal window/tab.
+Clicking the terminal notification focuses the terminal window/tab.
+
+## Push Notifications via ntfy.sh
+
+[ntfy.sh](https://ntfy.sh) is a free, open-source push notification service. It lets you receive Pi notifications on your phone (or any device) even when you're not looking at the terminal.
+
+### Setup
+
+1. Install the [ntfy app](https://ntfy.sh) on your phone (iOS/Android)
+2. Subscribe to a topic in the app (e.g. `pi-notify-myname`)
+3. Set the environment variable:
+
+```bash
+export PI_NOTIFY_NTFY="https://ntfy.sh/pi-notify-myname"
+```
+
+That's it! When Pi finishes, you'll get a push notification on your phone.
+
+> **Tip:** Use a hard-to-guess topic name (or use a private ntfy server) since topic names are publicly accessible.
+
+### Self-hosted ntfy server
+
+```bash
+export PI_NOTIFY_NTFY="https://ntfy.myserver.com/my-topic"
+```
+
+### Authentication
+
+For protected topics, set a token or basic auth:
+
+```bash
+# Access token (recommended)
+export PI_NOTIFY_NTFY_TOKEN="tk_abcdef123456"
+
+# Or basic auth
+export PI_NOTIFY_NTFY_USER="myuser"
+export PI_NOTIFY_NTFY_PASS="mypass"
+```
+
+### Optional settings
+
+```bash
+# Priority: min, low, default, high, urgent
+export PI_NOTIFY_NTFY_PRIORITY="high"
+
+# Emoji tags (comma-separated, see ntfy docs)
+export PI_NOTIFY_NTFY_TAGS="robot,white_check_mark"
+
+# Click action URL (opens when tapping the notification)
+export PI_NOTIFY_NTFY_CLICK="https://your-ci-dashboard.com"
+```
+
+All `PI_NOTIFY_NTFY_*` variables are optional except `PI_NOTIFY_NTFY` itself. The push notification fires alongside the terminal notification — you get both.
+
+### How it works
+
+The extension sends a simple HTTP POST to your ntfy topic URL. The request body is the notification message, with `Title`, `Priority`, and `Tags` headers. It's fire-and-forget: errors are silently ignored so they never break the terminal notification.
 
 ## Optional: Custom sound hook
 

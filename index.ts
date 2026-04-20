@@ -1,14 +1,20 @@
 /**
  * Pi Notify Extension
  *
- * Sends a native terminal notification when Pi agent is done and waiting for input.
- * Supports multiple terminal protocols:
+ * Sends a notification when Pi agent is done and waiting for input.
+ * Supports multiple notification channels:
+ *
+ * Terminal protocols:
  * - OSC 777: Ghostty, WezTerm, rxvt-unicode
  * - OSC 9: iTerm2
  * - OSC 99: Kitty
  * - tmux passthrough wrapper for OSC notifications
  * - Windows toast: Windows Terminal (WSL)
- * - Optional sound hook via PI_NOTIFY_SOUND_CMD
+ *
+ * Push notifications:
+ * - ntfy.sh: Send push notifications to your phone via PI_NOTIFY_NTFY
+ *
+ * Optional sound hook via PI_NOTIFY_SOUND_CMD
  */
 
 import type { ExtensionAPI } from "@mariozechner/pi-coding-agent";
@@ -57,6 +63,70 @@ function notifyWindows(title: string, body: string): void {
     execFile("powershell.exe", ["-NoProfile", "-Command", windowsToastScript(title, body)]);
 }
 
+/**
+ * Send a push notification via ntfy.sh.
+ *
+ * Set PI_NOTIFY_NTFY to your topic URL, e.g.:
+ *   https://ntfy.sh/my-secret-topic
+ *   https://ntfy.myserver.com/my-topic
+ *
+ * Optionally set PI_NOTIFY_NTFY_TOKEN for access tokens:
+ *   tk_abcdef123456
+ *
+ * The ntfy.sh API is a simple HTTP POST:
+ *   - URL path = topic
+ *   - Request body = message
+ *   - Headers: Title, Priority, Tags, Actions
+ */
+function notifyNtfy(title: string, body: string): void {
+    const ntfyUrl = process.env.PI_NOTIFY_NTFY?.trim();
+    if (!ntfyUrl) return;
+
+    try {
+        const url = new URL(ntfyUrl);
+        const headers: Record<string, string> = {
+            "Title": title,
+            "Priority": process.env.PI_NOTIFY_NTFY_PRIORITY?.trim() ?? "default",
+            "Tags": process.env.PI_NOTIFY_NTFY_TAGS?.trim() ?? "white_check_mark",
+        };
+
+        // Optional click action: open the terminal / pi session
+        const clickUrl = process.env.PI_NOTIFY_NTFY_CLICK?.trim();
+        if (clickUrl) {
+            headers["Actions"] = `view, Open, ${clickUrl}`;
+        }
+
+        // Optional auth token or basic auth
+        const token = process.env.PI_NOTIFY_NTFY_TOKEN?.trim();
+        const user = process.env.PI_NOTIFY_NTFY_USER?.trim();
+        const pass = process.env.PI_NOTIFY_NTFY_PASS?.trim();
+        if (token) {
+            headers["Authorization"] = `Bearer ${token}`;
+        } else if (user && pass) {
+            const encoded = Buffer.from(`${user}:${pass}`).toString("base64");
+            headers["Authorization"] = `Basic ${encoded}`;
+        }
+
+        const { request } = require("node:http");
+        const { request: secureRequest } = require("node:https");
+        const reqFn = url.protocol === "https:" ? secureRequest : request;
+
+        const req = reqFn(url, { method: "POST", headers }, (res: any) => {
+            // Consume response to free the connection
+            res.resume();
+        });
+
+        req.on("error", () => {
+            // Silently ignore ntfy errors — don't break the extension
+        });
+
+        req.write(body);
+        req.end();
+    } catch {
+        // Silently ignore ntfy errors — don't break the extension
+    }
+}
+
 function runSoundHook(): void {
     const command = process.env.PI_NOTIFY_SOUND_CMD?.trim();
     if (!command) return;
@@ -74,7 +144,43 @@ function runSoundHook(): void {
     }
 }
 
-function notify(title: string, body: string): void {
+/**
+ * Truncate a string to `max` characters, appending "…" if truncated.
+ */
+function truncate(str: string, max: number): string {
+    if (str.length <= max) return str;
+    return str.slice(0, max - 1) + "…";
+}
+
+/**
+ * Extract the text content from the last assistant message in the agent response.
+ * Falls back to a generic message if none is found.
+ */
+function extractAssistantSummary(messages: any[]): string {
+    // Walk messages in reverse to find the last assistant message
+    for (let i = messages.length - 1; i >= 0; i--) {
+        const msg = messages[i];
+        if (msg?.role !== "assistant") continue;
+
+        const content = Array.isArray(msg.content) ? msg.content : [];
+        // Collect all text blocks (skip thinking, toolCall, etc.)
+        const textParts: string[] = [];
+        for (const block of content) {
+            if (block?.type === "text" && block.text?.trim()) {
+                textParts.push(block.text.trim());
+            }
+        }
+
+        if (textParts.length > 0) {
+            // Grab the first meaningful paragraph (first text block), up to ~200 chars
+            const summary = textParts[0];
+            return truncate(summary, 200);
+        }
+    }
+    return "Ready for input";
+}
+
+function notify(title: string, body: string, sessionName?: string): void {
     const isIterm2 = process.env.TERM_PROGRAM === "iTerm.app" || Boolean(process.env.ITERM_SESSION_ID);
 
     if (process.env.WT_SESSION) {
@@ -88,10 +194,20 @@ function notify(title: string, body: string): void {
     }
 
     runSoundHook();
+
+    // ntfy: put session context in the body for richer phone notifications.
+    // HTTP headers must be ASCII, so keep the header title simple.
+    const ntfyBody = sessionName ? `${sessionName}\n\n${body}` : body;
+    notifyNtfy("Pi", ntfyBody);
 }
 
 export default function (pi: ExtensionAPI) {
-    pi.on("agent_end", async () => {
-        notify("Pi", "Ready for input");
+    pi.on("agent_end", async (event) => {
+        const sessionName = pi.getSessionName();
+        const title = sessionName ? `Pi — ${sessionName}` : "Pi";
+
+        const summary = extractAssistantSummary(event.messages);
+
+        notify(title, summary, sessionName ?? undefined);
     });
 }
