@@ -4,6 +4,7 @@ import {
     truncate,
     extractAssistantSummary,
     extractToolSummary,
+    mapStopReasonToPriority,
     buildNtfyBody,
     formatUsage,
     wrapForTmux,
@@ -156,6 +157,34 @@ describe("extractToolSummary", () => {
         ];
         const result = extractToolSummary(msgs);
         assert.equal(result, "🔧 bash(2) read(2)");
+    });
+});
+
+// --- mapStopReasonToPriority ---
+
+describe("mapStopReasonToPriority", () => {
+    it("maps stop to default", () => {
+        assert.equal(mapStopReasonToPriority("stop"), "default");
+    });
+
+    it("maps toolUse to high", () => {
+        assert.equal(mapStopReasonToPriority("toolUse"), "high");
+    });
+
+    it("maps length to high", () => {
+        assert.equal(mapStopReasonToPriority("length"), "high");
+    });
+
+    it("maps error to urgent", () => {
+        assert.equal(mapStopReasonToPriority("error"), "urgent");
+    });
+
+    it("maps aborted to min", () => {
+        assert.equal(mapStopReasonToPriority("aborted"), "min");
+    });
+
+    it("maps unknown to default", () => {
+        assert.equal(mapStopReasonToPriority("unknown"), "default");
     });
 });
 

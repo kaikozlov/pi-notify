@@ -80,7 +80,7 @@ function notifyWindows(title: string, body: string): void {
  *   - Request body = message
  *   - Headers: Title, Priority, Tags, Actions
  */
-function notifyNtfy(title: string, body: string): void {
+function notifyNtfy(title: string, body: string, options?: { priority?: string }): void {
     const ntfyUrl = process.env.PI_NOTIFY_NTFY?.trim();
     if (!ntfyUrl) return;
 
@@ -88,7 +88,7 @@ function notifyNtfy(title: string, body: string): void {
         const url = new URL(ntfyUrl);
         const headers: Record<string, string> = {
             "Title": title,
-            "Priority": process.env.PI_NOTIFY_NTFY_PRIORITY?.trim() ?? "default",
+            "Priority": options?.priority ?? process.env.PI_NOTIFY_NTFY_PRIORITY?.trim() ?? "default",
             "Tags": process.env.PI_NOTIFY_NTFY_TAGS?.trim() ?? "white_check_mark",
             "Markdown": "yes",
         };
@@ -196,6 +196,19 @@ export interface AgentMessage {
 }
 
 /**
+ * Map stopReason to ntfy priority.
+ */
+export function mapStopReasonToPriority(stopReason: string): string {
+    switch (stopReason) {
+        case "error": return "urgent";
+        case "toolUse": return "high";
+        case "length": return "high";
+        case "aborted": return "min";
+        default: return "default";
+    }
+}
+
+/**
  * Walk messages and tally tool calls by name.
  * Returns a summary like "🔧 edit(3) read(5) bash(1)"
  */
@@ -296,7 +309,7 @@ export function buildNtfyBody(summary: string, options?: NtfyBodyOptions): strin
     return parts.join("\n");
 }
 
-export function notify(title: string, body: string, sessionName?: string, ntfyOptions?: NtfyBodyOptions): void {
+export function notify(title: string, body: string, sessionName?: string, ntfyOptions?: NtfyBodyOptions & { stopReason?: string }): void {
     const isIterm2 = process.env.TERM_PROGRAM === "iTerm.app" || Boolean(process.env.ITERM_SESSION_ID);
 
     if (process.env.WT_SESSION) {
@@ -313,7 +326,10 @@ export function notify(title: string, body: string, sessionName?: string, ntfyOp
 
     // ntfy: markdown-formatted body with session context.
     const ntfyBody = buildNtfyBody(body, { sessionName, ...ntfyOptions });
-    notifyNtfy("Pi", ntfyBody);
+    // Use explicit env var priority if set, otherwise derive from stopReason
+    const ntfyPriority = process.env.PI_NOTIFY_NTFY_PRIORITY?.trim()
+        ?? (ntfyOptions?.stopReason ? mapStopReasonToPriority(ntfyOptions.stopReason) : undefined);
+    notifyNtfy("Pi", ntfyBody, { priority: ntfyPriority });
 }
 
 export default function (pi: ExtensionAPI) {
@@ -336,6 +352,7 @@ export default function (pi: ExtensionAPI) {
         notify(title, summary, sessionName ?? undefined, {
             usage: lastAssistant?.usage,
             toolSummary: toolSummary || undefined,
+            stopReason: lastAssistant?.stopReason,
         });
     });
 }
