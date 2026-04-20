@@ -213,23 +213,48 @@ export function extractAssistantSummary(messages: AgentMessage[]): string {
 }
 
 /**
+ * Format token usage and cost into a compact string for notifications.
+ * Example: "⚙️ 1,247 tokens • $0.003"
+ */
+export function formatUsage(usage: AssistantMessage["usage"]): string {
+    const tokens = usage.totalTokens;
+    const formatted = tokens.toLocaleString();
+    const cost = usage.cost?.total;
+    if (cost !== undefined && cost > 0) {
+        const costStr = `$${cost.toFixed(4)}`.replace(/\.?0+$/, "");
+        return `⚙️ ${formatted} tokens • ${costStr}`;
+    }
+    return `⚙️ ${formatted} tokens`;
+}
+
+/**
  * Build a markdown-formatted body for ntfy push notifications.
  * ntfy renders markdown when the `Markdown: yes` header is set.
  */
-export function buildNtfyBody(sessionName: string | undefined, summary: string): string {
+export interface NtfyBodyOptions {
+    sessionName?: string;
+    usage?: AssistantMessage["usage"];
+}
+
+export function buildNtfyBody(summary: string, options?: NtfyBodyOptions): string {
     const parts: string[] = [];
 
-    if (sessionName) {
-        parts.push(`**${sessionName}**`);
+    if (options?.sessionName) {
+        parts.push(`**${options.sessionName}**`);
         parts.push("");
     }
 
     parts.push(summary);
 
+    if (options?.usage) {
+        parts.push("");
+        parts.push(formatUsage(options.usage));
+    }
+
     return parts.join("\n");
 }
 
-export function notify(title: string, body: string, sessionName?: string): void {
+export function notify(title: string, body: string, sessionName?: string, ntfyOptions?: NtfyBodyOptions): void {
     const isIterm2 = process.env.TERM_PROGRAM === "iTerm.app" || Boolean(process.env.ITERM_SESSION_ID);
 
     if (process.env.WT_SESSION) {
@@ -245,7 +270,7 @@ export function notify(title: string, body: string, sessionName?: string): void 
     runSoundHook();
 
     // ntfy: markdown-formatted body with session context.
-    const ntfyBody = buildNtfyBody(sessionName, body);
+    const ntfyBody = buildNtfyBody(body, { sessionName, ...ntfyOptions });
     notifyNtfy("Pi", ntfyBody);
 }
 
@@ -265,6 +290,8 @@ export default function (pi: ExtensionAPI) {
 
         const summary = extractAssistantSummary(event.messages);
 
-        notify(title, summary, sessionName ?? undefined);
+        notify(title, summary, sessionName ?? undefined, {
+            usage: lastAssistant?.usage,
+        });
     });
 }

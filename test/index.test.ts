@@ -4,6 +4,7 @@ import {
     truncate,
     extractAssistantSummary,
     buildNtfyBody,
+    formatUsage,
     wrapForTmux,
     notify,
     type AssistantMessage,
@@ -105,20 +106,67 @@ describe("extractAssistantSummary", () => {
     });
 });
 
+// --- formatUsage ---
+
+describe("formatUsage", () => {
+    it("formats tokens only when no cost", () => {
+        assert.equal(
+            formatUsage({ input: 100, output: 50, cacheRead: 0, cacheWrite: 0, totalTokens: 150 }),
+            "⚙️ 150 tokens",
+        );
+    });
+
+    it("formats tokens with cost", () => {
+        assert.equal(
+            formatUsage({ input: 1000, output: 247, cacheRead: 0, cacheWrite: 0, totalTokens: 1247, cost: { total: 0.003 } }),
+            "⚙️ 1,247 tokens • $0.003",
+        );
+    });
+
+    it("formats cost with more decimals for tiny amounts", () => {
+        assert.equal(
+            formatUsage({ input: 100, output: 10, cacheRead: 0, cacheWrite: 0, totalTokens: 110, cost: { total: 0.0012 } }),
+            "⚙️ 110 tokens • $0.0012",
+        );
+    });
+
+    it("omits cost when zero", () => {
+        assert.equal(
+            formatUsage({ input: 100, output: 10, cacheRead: 0, cacheWrite: 0, totalTokens: 110, cost: { total: 0 } }),
+            "⚙️ 110 tokens",
+        );
+    });
+});
+
 // --- buildNtfyBody ---
 
 describe("buildNtfyBody", () => {
-    it("returns just summary when no session name", () => {
-        assert.equal(buildNtfyBody(undefined, "Task complete"), "Task complete");
+    it("returns just summary when no options", () => {
+        assert.equal(buildNtfyBody("Task complete"), "Task complete");
     });
 
     it("includes bold session name with summary", () => {
-        const body = buildNtfyBody("Refactor auth", "Done refactoring");
+        const body = buildNtfyBody("Done refactoring", { sessionName: "Refactor auth" });
         assert.equal(body, "**Refactor auth**\n\nDone refactoring");
     });
 
     it("handles empty session name", () => {
-        assert.equal(buildNtfyBody("", "Summary text"), "Summary text");
+        assert.equal(buildNtfyBody("Summary text", { sessionName: "" }), "Summary text");
+    });
+
+    it("includes usage line", () => {
+        const body = buildNtfyBody("Done", {
+            usage: { input: 100, output: 50, cacheRead: 0, cacheWrite: 0, totalTokens: 150 },
+        });
+        assert.equal(body, "Done\n\n⚙️ 150 tokens");
+    });
+
+    it("includes session name and usage together", () => {
+        const body = buildNtfyBody("Done", {
+            sessionName: "Refactor",
+            usage: { input: 1000, output: 247, cacheRead: 0, cacheWrite: 0, totalTokens: 1247, cost: { total: 0.003 } },
+        });
+        assert.equal(body, "**Refactor**\n\nDone\n\n⚙️ 1,247 tokens • $0.003");
     });
 });
 
