@@ -52,6 +52,20 @@ When Pi's agent finishes (`agent_end` event), the extension sends a notification
 
 Clicking the terminal notification focuses the terminal window/tab.
 
+## `/notify` command
+
+Control which notification channels are active at runtime. The mode resets to `all` when Pi restarts.
+
+```
+/notify          Show current mode and usage
+/notify off      Silence everything
+/notify local    Terminal only (OSC), no push
+/notify ntfy     Push only, no terminal bell
+/notify all      Both terminal + push (default)
+```
+
+Useful when you're actively pairing with Pi and don't need notifications, or when you only want push alerts on your phone.
+
 ## Push Notifications via ntfy.sh
 
 [ntfy.sh](https://ntfy.sh) is a free, open-source push notification service. It lets you receive Pi notifications on your phone (or any device) even when you're not looking at the terminal.

@@ -353,8 +353,8 @@ export function formatUsage(usage: AssistantMessage["usage"]): string {
 }
 
 /**
- * Format elapsed milliseconds into a human-readable string.
- * Example: "⏱ Completed in 2m 34s"
+ * Format elapsed milliseconds into a compact human-readable string.
+ * Example: "⏱ 2m 34s"
  */
 export function formatElapsed(ms: number): string {
     const totalSeconds = Math.floor(ms / 1000);
@@ -367,7 +367,7 @@ export function formatElapsed(ms: number): string {
     if (minutes > 0 || hours > 0) parts.push(`${minutes}m`);
     parts.push(`${seconds}s`);
 
-    return `⏱ Completed in ${parts.join(" ")}`;
+    return `⏱ ${parts.join(" ")}`;
 }
 
 /**
@@ -392,19 +392,20 @@ export function buildNtfyBody(summary: string, options?: NtfyBodyOptions): strin
 
     parts.push(summary);
 
+    // Consolidate metadata (usage, tools, elapsed) into a single compact line
+    const metaParts: string[] = [];
     if (options?.usage) {
-        parts.push("");
-        parts.push(formatUsage(options.usage));
+        metaParts.push(formatUsage(options.usage));
     }
-
     if (options?.toolSummary) {
-        parts.push("");
-        parts.push(options.toolSummary);
+        metaParts.push(options.toolSummary);
     }
-
     if (options?.elapsedMs !== undefined && options.elapsedMs > 0) {
+        metaParts.push(formatElapsed(options.elapsedMs));
+    }
+    if (metaParts.length > 0) {
         parts.push("");
-        parts.push(formatElapsed(options.elapsedMs));
+        parts.push(metaParts.join(" · "));
     }
 
     if (options?.errorMessage) {
@@ -415,7 +416,45 @@ export function buildNtfyBody(summary: string, options?: NtfyBodyOptions): strin
     return parts.join("\n");
 }
 
-export function notify(title: string, body: string, sessionName?: string, ntfyOptions?: NtfyBodyOptions & { stopReason?: string; cwd?: string }): void {
+/**
+ * Notification mode: which channels are active.
+ * - "all": both terminal + ntfy push (default)
+ * - "local": terminal only
+ * - "ntfy": push only
+ * - "off": silence everything
+ */
+export type NotificationMode = "off" | "local" | "ntfy" | "all";
+
+const VALID_MODES: NotificationMode[] = ["off", "local", "ntfy", "all"];
+
+/** Module-level notification mode state. Reset on restart. */
+let notifyMode: NotificationMode = "all";
+
+export function getNotifyMode(): NotificationMode {
+    return notifyMode;
+}
+
+export function setNotifyMode(mode: NotificationMode): void {
+    if (!VALID_MODES.includes(mode)) return;
+    notifyMode = mode;
+}
+
+/**
+ * Mode labels for display.
+ */
+const MODE_LABELS: Record<NotificationMode, string> = {
+    off: "🔕 Off — no notifications",
+    local: "💻 Local — terminal only",
+    ntfy: "📱 ntfy — push only",
+    all: "🔔 All — terminal + push",
+};
+
+function modeHelpText(): string {
+    const lines = VALID_MODES.map((m) => `  /notify ${m}  ${m === notifyMode ? "← current" : ""}`);
+    return `Notification mode: ${MODE_LABELS[notifyMode]}\n\nUsage:\n${lines.join("\n")}`;
+}
+
+function notifyTerminal(title: string, body: string): void {
     const isIterm2 = process.env.TERM_PROGRAM === "iTerm.app" || Boolean(process.env.ITERM_SESSION_ID);
 
     if (process.env.WT_SESSION) {
@@ -427,8 +466,19 @@ export function notify(title: string, body: string, sessionName?: string, ntfyOp
     } else {
         notifyOSC777(title, body);
     }
+}
 
-    runSoundHook();
+export function notify(title: string, body: string, sessionName?: string, ntfyOptions?: NtfyBodyOptions & { stopReason?: string; cwd?: string }): void {
+    const mode = notifyMode;
+    const sendLocal = mode === "all" || mode === "local";
+    const sendPush = mode === "all" || mode === "ntfy";
+
+    if (sendLocal) {
+        notifyTerminal(title, body);
+        runSoundHook();
+    }
+
+    if (!sendPush) return;
 
     // Detect error state
     const isError = ntfyOptions?.stopReason === "error" || Boolean(ntfyOptions?.errorMessage);
@@ -439,7 +489,10 @@ export function notify(title: string, body: string, sessionName?: string, ntfyOp
     const ntfyPriority = process.env.PI_NOTIFY_NTFY_PRIORITY?.trim()
         ?? (ntfyOptions?.stopReason ? mapStopReasonToPriority(ntfyOptions.stopReason) : undefined);
     // Error notifications get special title, tags
-    const ntfyTitle = isError ? "⚠️ Pi Error" : "Pi";
+    const project = ntfyOptions?.cwd?.split("/").pop() ?? "";
+    const ntfyTitle = isError
+        ? (project ? `⚠️ Pi Error — ${project}` : "⚠️ Pi Error")
+        : (project ? `Pi — ${project}` : "Pi");
     const ntfyTags = isError ? "rotating_light" : undefined;
     notifyNtfy(ntfyTitle, ntfyBody, { priority: ntfyPriority, cwd: ntfyOptions?.cwd, tags: ntfyTags });
 }
@@ -464,6 +517,35 @@ export function shouldSendKeepalive(
 }
 
 export default function (pi: ExtensionAPI) {
+    // Register /notify command
+    pi.registerCommand("notify", {
+        description: "Control notification mode: off, local, ntfy, all",
+        getArgumentCompletions(prefix: string) {
+            const matches = VALID_MODES.filter((m) => m.startsWith(prefix));
+            return matches.map((m) => ({ value: m, label: m, description: MODE_LABELS[m] }));
+        },
+        async handler(args, ctx) {
+            const mode = args.trim() as NotificationMode;
+
+            if (!mode) {
+                // No arg — show current mode and usage
+                ctx.ui.notify(modeHelpText(), "info");
+                return;
+            }
+
+            if (!VALID_MODES.includes(mode)) {
+                ctx.ui.notify(
+                    `Unknown mode "${mode}". Valid: ${VALID_MODES.join(", ")}`,
+                    "error",
+                );
+                return;
+            }
+
+            notifyMode = mode;
+            ctx.ui.notify(`Notifications: ${MODE_LABELS[mode]}`, "info");
+        },
+    });
+
     pi.on("agent_start", async () => {
         agentStartTime = Date.now();
         lastKeepaliveTime = Date.now();
@@ -471,8 +553,10 @@ export default function (pi: ExtensionAPI) {
     });
 
     pi.on("turn_end", async (event, ctx) => {
-        // Only for interactive sessions
+        // Only for interactive sessions and when push notifications are enabled
         if (!ctx.hasUI) return;
+        const mode = notifyMode;
+        if (mode !== "all" && mode !== "ntfy") return;
 
         const keepaliveMin = parseInt(process.env.PI_NOTIFY_NTFY_KEEPALIVE?.trim() ?? "0", 10);
         if (keepaliveMin <= 0) return;
@@ -496,7 +580,9 @@ export default function (pi: ExtensionAPI) {
             elapsedMs,
         });
 
-        notifyNtfy("Pi 🏃", body, { priority: "min", cwd: keepaliveCwd });
+        const keepaliveProject = keepaliveCwd?.split("/").pop() ?? "";
+        const keepaliveTitle = keepaliveProject ? `Pi 🏃 — ${keepaliveProject}` : "Pi 🏃";
+        notifyNtfy(keepaliveTitle, body, { priority: "min", cwd: keepaliveCwd });
     });
 
     pi.on("agent_end", async (event, ctx) => {
@@ -504,7 +590,12 @@ export default function (pi: ExtensionAPI) {
         if (!ctx.hasUI) return;
 
         const sessionName = pi.getSessionName();
-        const title = sessionName ? `Pi — ${sessionName}` : "Pi";
+        const project = ctx.cwd?.split("/").pop() ?? "";
+        const title = sessionName
+            ? `Pi — ${sessionName}`
+            : project
+                ? `Pi — ${project}`
+                : "Pi";
 
         // Skip notification if the user cancelled (Escape / manual abort) — they're present
         const lastAssistant = event.messages

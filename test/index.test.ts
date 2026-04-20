@@ -10,6 +10,8 @@ import {
     buildNtfyActions,
     shouldSendKeepalive,
     resolveNtfyUrl,
+    getNotifyMode,
+    setNotifyMode,
     buildNtfyBody,
     formatUsage,
     wrapForTmux,
@@ -197,23 +199,23 @@ describe("mapStopReasonToPriority", () => {
 
 describe("formatElapsed", () => {
     it("formats seconds only", () => {
-        assert.equal(formatElapsed(5000), "⏱ Completed in 5s");
+        assert.equal(formatElapsed(5000), "⏱ 5s");
     });
 
     it("formats minutes and seconds", () => {
-        assert.equal(formatElapsed(154000), "⏱ Completed in 2m 34s");
+        assert.equal(formatElapsed(154000), "⏱ 2m 34s");
     });
 
     it("formats hours, minutes, and seconds", () => {
-        assert.equal(formatElapsed(3723000), "⏱ Completed in 1h 2m 3s");
+        assert.equal(formatElapsed(3723000), "⏱ 1h 2m 3s");
     });
 
     it("shows 0m when only hours present", () => {
-        assert.equal(formatElapsed(3600000), "⏱ Completed in 1h 0m 0s");
+        assert.equal(formatElapsed(3600000), "⏱ 1h 0m 0s");
     });
 
     it("formats sub-second as 0s", () => {
-        assert.equal(formatElapsed(500), "⏱ Completed in 0s");
+        assert.equal(formatElapsed(500), "⏱ 0s");
     });
 });
 
@@ -440,14 +442,14 @@ describe("buildNtfyBody", () => {
         assert.equal(body, "Done\n\n🔧 bash(2) edit(1)");
     });
 
-    it("includes all metadata together", () => {
+    it("includes all metadata consolidated on one line", () => {
         const body = buildNtfyBody("Done", {
             sessionName: "Refactor",
             usage: { input: 1000, output: 247, cacheRead: 0, cacheWrite: 0, totalTokens: 1247, cost: { total: 0.003 } },
             toolSummary: "🔧 bash(2) edit(1)",
             elapsedMs: 154000,
         });
-        assert.equal(body, "**Refactor**\n\nDone\n\n⚙️ 1,247 tokens • $0.003\n\n🔧 bash(2) edit(1)\n\n⏱ Completed in 2m 34s");
+        assert.equal(body, "**Refactor**\n\nDone\n\n⚙️ 1,247 tokens • $0.003 · 🔧 bash(2) edit(1) · ⏱ 2m 34s");
     });
 
     it("includes error message when present", () => {
@@ -504,6 +506,93 @@ describe("notify", () => {
         try {
             notify("Title", "Body");
             assert.ok(written.some((s) => s.includes("]99;")), "should write OSC 99");
+        } finally {
+            process.stdout.write = orig;
+        }
+    });
+});
+
+// --- notification mode ---
+
+describe("notification mode", () => {
+    beforeEach(() => {
+        setNotifyMode("all");
+        delete process.env.WT_SESSION;
+        delete process.env.KITTY_WINDOW_ID;
+        delete process.env.TERM_PROGRAM;
+        delete process.env.ITERM_SESSION_ID;
+        delete process.env.TMUX;
+        delete process.env.PI_NOTIFY_NTFY;
+        delete process.env.PI_NOTIFY_SOUND_CMD;
+    });
+
+    it("defaults to all mode", () => {
+        assert.equal(getNotifyMode(), "all");
+    });
+
+    it("setNotifyMode updates mode", () => {
+        setNotifyMode("off");
+        assert.equal(getNotifyMode(), "off");
+        setNotifyMode("local");
+        assert.equal(getNotifyMode(), "local");
+        setNotifyMode("ntfy");
+        assert.equal(getNotifyMode(), "ntfy");
+        setNotifyMode("all");
+        assert.equal(getNotifyMode(), "all");
+    });
+
+    it("setNotifyMode ignores invalid modes", () => {
+        setNotifyMode("invalid" as any);
+        assert.equal(getNotifyMode(), "all");
+    });
+
+    it("off mode suppresses terminal notifications", () => {
+        setNotifyMode("off");
+        const written: string[] = [];
+        const orig = process.stdout.write;
+        process.stdout.write = (chunk: string) => { written.push(chunk); return true; };
+        try {
+            notify("Title", "Body");
+            assert.equal(written.length, 0, "should not write anything");
+        } finally {
+            process.stdout.write = orig;
+        }
+    });
+
+    it("ntfy mode suppresses terminal notifications", () => {
+        setNotifyMode("ntfy");
+        const written: string[] = [];
+        const orig = process.stdout.write;
+        process.stdout.write = (chunk: string) => { written.push(chunk); return true; };
+        try {
+            notify("Title", "Body");
+            assert.equal(written.length, 0, "should not write terminal notification");
+        } finally {
+            process.stdout.write = orig;
+        }
+    });
+
+    it("local mode still sends terminal notifications", () => {
+        setNotifyMode("local");
+        const written: string[] = [];
+        const orig = process.stdout.write;
+        process.stdout.write = (chunk: string) => { written.push(chunk); return true; };
+        try {
+            notify("Title", "Body");
+            assert.ok(written.some((s) => s.includes("]777;")), "should write OSC 777");
+        } finally {
+            process.stdout.write = orig;
+        }
+    });
+
+    it("all mode sends terminal notifications", () => {
+        setNotifyMode("all");
+        const written: string[] = [];
+        const orig = process.stdout.write;
+        process.stdout.write = (chunk: string) => { written.push(chunk); return true; };
+        try {
+            notify("Title", "Body");
+            assert.ok(written.some((s) => s.includes("]777;")), "should write OSC 777");
         } finally {
             process.stdout.write = orig;
         }
