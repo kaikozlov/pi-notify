@@ -9,6 +9,7 @@ import {
     resolveClickUrl,
     buildNtfyActions,
     shouldSendKeepalive,
+    resolveNtfyUrl,
     buildNtfyBody,
     formatUsage,
     wrapForTmux,
@@ -335,6 +336,37 @@ describe("shouldSendKeepalive", () => {
 
     it("returns true when exactly at interval", () => {
         assert.equal(shouldSendKeepalive(10000, 5000, 5000), true);
+    });
+});
+
+// --- resolveNtfyUrl ---
+
+describe("resolveNtfyUrl", () => {
+    it("returns URL unchanged when no tokens", () => {
+        assert.equal(resolveNtfyUrl("https://ntfy.sh/my-topic", "/home/user/project"), "https://ntfy.sh/my-topic");
+    });
+
+    it("returns URL unchanged when no cwd", () => {
+        assert.equal(resolveNtfyUrl("https://ntfy.sh/pi-{project}"), "https://ntfy.sh/pi-{project}");
+    });
+
+    it("resolves {project} token", () => {
+        assert.equal(resolveNtfyUrl("https://ntfy.sh/pi-{project}", "/home/user/pi-notify"), "https://ntfy.sh/pi-pi-notify");
+    });
+
+    it("resolves {cwd} token", () => {
+        assert.equal(resolveNtfyUrl("https://ntfy.sh/topic-{cwd}", "/home/user/project"), "https://ntfy.sh/topic-/home/user/project");
+    });
+
+    it("resolves both tokens", () => {
+        assert.equal(
+            resolveNtfyUrl("https://ntfy.sh/work-{project}-{cwd}", "/home/user/my-app"),
+            "https://ntfy.sh/work-my-app-/home/user/my-app",
+        );
+    });
+
+    it("handles root-level cwd", () => {
+        assert.equal(resolveNtfyUrl("https://ntfy.sh/{project}", "/"), "https://ntfy.sh/");
     });
 });
 

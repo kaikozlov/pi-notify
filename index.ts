@@ -140,11 +140,27 @@ export function buildNtfyActions(cwd?: string): string | undefined {
     return JSON.stringify(actions);
 }
 
+/**
+ * Resolve template tokens in the ntfy URL.
+ * Supported tokens: {project} (basename of cwd), {cwd} (full path)
+ *
+ * Example: https://ntfy.sh/pi-{project} → https://ntfy.sh/pi-pi-notify
+ */
+export function resolveNtfyUrl(rawUrl: string, cwd?: string): string {
+    if (!cwd) return rawUrl;
+
+    const project = cwd.split("/").pop() ?? "";
+    return rawUrl
+        .replace("{project}", project)
+        .replace("{cwd}", cwd);
+}
+
 function notifyNtfy(title: string, body: string, options?: { priority?: string; cwd?: string; tags?: string }): void {
-    const ntfyUrl = process.env.PI_NOTIFY_NTFY?.trim();
-    if (!ntfyUrl) return;
+    const rawNtfyUrl = process.env.PI_NOTIFY_NTFY?.trim();
+    if (!rawNtfyUrl) return;
 
     try {
+        const ntfyUrl = resolveNtfyUrl(rawNtfyUrl, options?.cwd);
         const url = new URL(ntfyUrl);
         const headers: Record<string, string> = {
             "Title": title,
