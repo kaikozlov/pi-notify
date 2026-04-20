@@ -3,6 +3,7 @@ import assert from "node:assert/strict";
 import {
     truncate,
     extractAssistantSummary,
+    extractToolSummary,
     buildNtfyBody,
     formatUsage,
     wrapForTmux,
@@ -106,6 +107,58 @@ describe("extractAssistantSummary", () => {
     });
 });
 
+// --- extractToolSummary ---
+
+describe("extractToolSummary", () => {
+    it("returns empty string when no tool calls", () => {
+        assert.equal(extractToolSummary([]), "");
+    });
+
+    it("returns empty string when assistant has only text", () => {
+        const msgs: AgentMessage[] = [
+            { role: "assistant", content: [{ type: "text", text: "hello" }] },
+        ];
+        assert.equal(extractToolSummary(msgs), "");
+    });
+
+    it("tallies tool calls across multiple messages", () => {
+        const msgs: AgentMessage[] = [
+            {
+                role: "assistant",
+                content: [
+                    { type: "toolCall", id: "1", name: "bash", arguments: {} },
+                    { type: "toolCall", id: "2", name: "read", arguments: {} },
+                ],
+            },
+            {
+                role: "assistant",
+                content: [
+                    { type: "toolCall", id: "3", name: "bash", arguments: {} },
+                    { type: "toolCall", id: "4", name: "edit", arguments: {} },
+                ],
+            },
+        ];
+        const result = extractToolSummary(msgs);
+        assert.equal(result, "🔧 bash(2) edit(1) read(1)");
+    });
+
+    it("sorts by count descending then alphabetically", () => {
+        const msgs: AgentMessage[] = [
+            {
+                role: "assistant",
+                content: [
+                    { type: "toolCall", id: "1", name: "read", arguments: {} },
+                    { type: "toolCall", id: "2", name: "read", arguments: {} },
+                    { type: "toolCall", id: "3", name: "bash", arguments: {} },
+                    { type: "toolCall", id: "4", name: "bash", arguments: {} },
+                ],
+            },
+        ];
+        const result = extractToolSummary(msgs);
+        assert.equal(result, "🔧 bash(2) read(2)");
+    });
+});
+
 // --- formatUsage ---
 
 describe("formatUsage", () => {
@@ -167,6 +220,22 @@ describe("buildNtfyBody", () => {
             usage: { input: 1000, output: 247, cacheRead: 0, cacheWrite: 0, totalTokens: 1247, cost: { total: 0.003 } },
         });
         assert.equal(body, "**Refactor**\n\nDone\n\n⚙️ 1,247 tokens • $0.003");
+    });
+
+    it("includes tool summary", () => {
+        const body = buildNtfyBody("Done", {
+            toolSummary: "🔧 bash(2) edit(1)",
+        });
+        assert.equal(body, "Done\n\n🔧 bash(2) edit(1)");
+    });
+
+    it("includes all metadata together", () => {
+        const body = buildNtfyBody("Done", {
+            sessionName: "Refactor",
+            usage: { input: 1000, output: 247, cacheRead: 0, cacheWrite: 0, totalTokens: 1247, cost: { total: 0.003 } },
+            toolSummary: "🔧 bash(2) edit(1)",
+        });
+        assert.equal(body, "**Refactor**\n\nDone\n\n⚙️ 1,247 tokens • $0.003\n\n🔧 bash(2) edit(1)");
     });
 });
 

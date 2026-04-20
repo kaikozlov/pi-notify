@@ -182,10 +182,46 @@ export interface AssistantMessage {
     timestamp: number;
 }
 
+export interface ToolCallContentBlock {
+    type: "toolCall";
+    id: string;
+    name: string;
+    arguments: Record<string, any>;
+}
+
 export interface AgentMessage {
     role: string;
     content?: unknown;
     [key: string]: unknown;
+}
+
+/**
+ * Walk messages and tally tool calls by name.
+ * Returns a summary like "🔧 edit(3) read(5) bash(1)"
+ */
+export function extractToolSummary(messages: AgentMessage[]): string {
+    const counts = new Map<string, number>();
+
+    for (const msg of messages) {
+        if (msg.role !== "assistant") continue;
+        const content = Array.isArray(msg.content) ? msg.content : [];
+        for (const block of content) {
+            if (
+                block && typeof block === "object" &&
+                "type" in block && block.type === "toolCall" &&
+                "name" in block && typeof block.name === "string"
+            ) {
+                counts.set(block.name, (counts.get(block.name) ?? 0) + 1);
+            }
+        }
+    }
+
+    if (counts.size === 0) return "";
+
+    // Sort by count descending, then alphabetically
+    const entries = [...counts.entries()].sort((a, b) => b[1] - a[1] || a[0].localeCompare(b[0]));
+    const parts = entries.map(([name, count]) => `${name}(${count})`);
+    return `🔧 ${parts.join(" ")}`;
 }
 
 export function extractAssistantSummary(messages: AgentMessage[]): string {
@@ -234,6 +270,7 @@ export function formatUsage(usage: AssistantMessage["usage"]): string {
 export interface NtfyBodyOptions {
     sessionName?: string;
     usage?: AssistantMessage["usage"];
+    toolSummary?: string;
 }
 
 export function buildNtfyBody(summary: string, options?: NtfyBodyOptions): string {
@@ -249,6 +286,11 @@ export function buildNtfyBody(summary: string, options?: NtfyBodyOptions): strin
     if (options?.usage) {
         parts.push("");
         parts.push(formatUsage(options.usage));
+    }
+
+    if (options?.toolSummary) {
+        parts.push("");
+        parts.push(options.toolSummary);
     }
 
     return parts.join("\n");
@@ -289,9 +331,11 @@ export default function (pi: ExtensionAPI) {
         if (lastAssistant?.stopReason === "aborted") return;
 
         const summary = extractAssistantSummary(event.messages);
+        const toolSummary = extractToolSummary(event.messages);
 
         notify(title, summary, sessionName ?? undefined, {
             usage: lastAssistant?.usage,
+            toolSummary: toolSummary || undefined,
         });
     });
 }
