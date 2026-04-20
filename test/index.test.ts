@@ -342,6 +342,13 @@ describe("buildNtfyBody", () => {
         });
         assert.equal(body, "**Refactor**\n\nDone\n\n⚙️ 1,247 tokens • $0.003\n\n🔧 bash(2) edit(1)\n\n⏱ Completed in 2m 34s");
     });
+
+    it("includes error message when present", () => {
+        const body = buildNtfyBody("Failed", {
+            errorMessage: "Rate limit exceeded",
+        });
+        assert.equal(body, "Failed\n\n⚠️ Rate limit exceeded");
+    });
 });
 
 // --- notify ---

@@ -108,7 +108,7 @@ export function resolveClickUrl(cwd?: string): string | undefined {
     return scheme.replace("{cwd}", cwd);
 }
 
-function notifyNtfy(title: string, body: string, options?: { priority?: string; cwd?: string }): void {
+function notifyNtfy(title: string, body: string, options?: { priority?: string; cwd?: string; tags?: string }): void {
     const ntfyUrl = process.env.PI_NOTIFY_NTFY?.trim();
     if (!ntfyUrl) return;
 
@@ -117,7 +117,7 @@ function notifyNtfy(title: string, body: string, options?: { priority?: string; 
         const headers: Record<string, string> = {
             "Title": title,
             "Priority": options?.priority ?? process.env.PI_NOTIFY_NTFY_PRIORITY?.trim() ?? "default",
-            "Tags": process.env.PI_NOTIFY_NTFY_TAGS?.trim() ?? "white_check_mark",
+            "Tags": options?.tags ?? process.env.PI_NOTIFY_NTFY_TAGS?.trim() ?? "white_check_mark",
             "Markdown": "yes",
         };
 
@@ -331,6 +331,7 @@ export interface NtfyBodyOptions {
     usage?: AssistantMessage["usage"];
     toolSummary?: string;
     elapsedMs?: number;
+    errorMessage?: string;
 }
 
 export function buildNtfyBody(summary: string, options?: NtfyBodyOptions): string {
@@ -358,6 +359,11 @@ export function buildNtfyBody(summary: string, options?: NtfyBodyOptions): strin
         parts.push(formatElapsed(options.elapsedMs));
     }
 
+    if (options?.errorMessage) {
+        parts.push("");
+        parts.push(`⚠️ ${options.errorMessage}`);
+    }
+
     return parts.join("\n");
 }
 
@@ -376,12 +382,18 @@ export function notify(title: string, body: string, sessionName?: string, ntfyOp
 
     runSoundHook();
 
+    // Detect error state
+    const isError = ntfyOptions?.stopReason === "error" || Boolean(ntfyOptions?.errorMessage);
+
     // ntfy: markdown-formatted body with session context.
     const ntfyBody = buildNtfyBody(body, { sessionName, ...ntfyOptions });
     // Use explicit env var priority if set, otherwise derive from stopReason
     const ntfyPriority = process.env.PI_NOTIFY_NTFY_PRIORITY?.trim()
         ?? (ntfyOptions?.stopReason ? mapStopReasonToPriority(ntfyOptions.stopReason) : undefined);
-    notifyNtfy("Pi", ntfyBody, { priority: ntfyPriority, cwd: ntfyOptions?.cwd });
+    // Error notifications get special title, tags
+    const ntfyTitle = isError ? "⚠️ Pi Error" : "Pi";
+    const ntfyTags = isError ? "rotating_light" : undefined;
+    notifyNtfy(ntfyTitle, ntfyBody, { priority: ntfyPriority, cwd: ntfyOptions?.cwd, tags: ntfyTags });
 }
 
 // Module-level tracker for agent start time
@@ -416,6 +428,7 @@ export default function (pi: ExtensionAPI) {
             stopReason: lastAssistant?.stopReason,
             elapsedMs,
             cwd: ctx.cwd,
+            errorMessage: lastAssistant?.errorMessage,
         });
     });
 }
