@@ -235,6 +235,12 @@ export default function (pi: ExtensionAPI) {
         const sessionName = pi.getSessionName();
         const title = sessionName ? `Pi — ${sessionName}` : "Pi";
 
+        // Skip notification if the user cancelled (Escape / manual abort) — they're present
+        const lastAssistant = event.messages
+            .filter((m: AgentMessage) => m.role === "assistant")
+            .pop() as AssistantMessage | undefined;
+        if (lastAssistant?.stopReason === "aborted") return;
+
         const summary = extractAssistantSummary(event.messages);
 
         notify(title, summary, sessionName ?? undefined);
