@@ -428,12 +428,59 @@ export function notify(title: string, body: string, sessionName?: string, ntfyOp
     notifyNtfy(ntfyTitle, ntfyBody, { priority: ntfyPriority, cwd: ntfyOptions?.cwd, tags: ntfyTags });
 }
 
-// Module-level tracker for agent start time
+// Module-level tracker for agent start time and keep-alive
 let agentStartTime: number | undefined;
+let lastKeepaliveTime: number | undefined;
+let keepaliveSessionName: string | undefined;
+let keepaliveCwd: string | undefined;
+
+/**
+ * Check if a keep-alive notification should be sent based on elapsed time.
+ */
+export function shouldSendKeepalive(
+    now: number,
+    lastTime: number | undefined,
+    intervalMs: number,
+): boolean {
+    if (intervalMs <= 0) return false;
+    if (lastTime === undefined) return false;
+    return now - lastTime >= intervalMs;
+}
 
 export default function (pi: ExtensionAPI) {
     pi.on("agent_start", async () => {
         agentStartTime = Date.now();
+        lastKeepaliveTime = Date.now();
+        keepaliveSessionName = pi.getSessionName() ?? undefined;
+    });
+
+    pi.on("turn_end", async (event, ctx) => {
+        // Only for interactive sessions
+        if (!ctx.hasUI) return;
+
+        const keepaliveMin = parseInt(process.env.PI_NOTIFY_NTFY_KEEPALIVE?.trim() ?? "0", 10);
+        if (keepaliveMin <= 0) return;
+
+        const now = Date.now();
+        const intervalMs = keepaliveMin * 60 * 1000;
+
+        if (!shouldSendKeepalive(now, lastKeepaliveTime, intervalMs)) return;
+
+        // Update tracker before sending
+        lastKeepaliveTime = now;
+        keepaliveCwd = ctx.cwd;
+
+        const elapsedMs = agentStartTime ? now - agentStartTime : undefined;
+        const toolSummary = extractToolSummary([event.message as AgentMessage]);
+        const turnInfo = `Turn ${event.turnIndex + 1}`;
+
+        const body = buildNtfyBody(`Still working... (${turnInfo})`, {
+            sessionName: keepaliveSessionName,
+            toolSummary: toolSummary || undefined,
+            elapsedMs,
+        });
+
+        notifyNtfy("Pi 🏃", body, { priority: "min", cwd: keepaliveCwd });
     });
 
     pi.on("agent_end", async (event, ctx) => {

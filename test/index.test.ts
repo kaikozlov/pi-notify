@@ -8,6 +8,7 @@ import {
     formatElapsed,
     resolveClickUrl,
     buildNtfyActions,
+    shouldSendKeepalive,
     buildNtfyBody,
     formatUsage,
     wrapForTmux,
@@ -306,6 +307,34 @@ describe("buildNtfyActions", () => {
     it("returns undefined when scheme set but no cwd", () => {
         process.env.PI_NOTIFY_NTFY_CLICK_SCHEME = "vscode";
         assert.equal(buildNtfyActions(), undefined);
+    });
+});
+
+// --- shouldSendKeepalive ---
+
+describe("shouldSendKeepalive", () => {
+    it("returns false when interval is zero", () => {
+        assert.equal(shouldSendKeepalive(10000, 0, 0), false);
+    });
+
+    it("returns false when interval is negative", () => {
+        assert.equal(shouldSendKeepalive(10000, 0, -1), false);
+    });
+
+    it("returns false when lastTime is undefined", () => {
+        assert.equal(shouldSendKeepalive(10000, undefined, 5000), false);
+    });
+
+    it("returns false when not enough time elapsed", () => {
+        assert.equal(shouldSendKeepalive(10000, 6000, 5000), false);
+    });
+
+    it("returns true when enough time has elapsed", () => {
+        assert.equal(shouldSendKeepalive(10000, 4000, 5000), true);
+    });
+
+    it("returns true when exactly at interval", () => {
+        assert.equal(shouldSendKeepalive(10000, 5000, 5000), true);
     });
 });
 
