@@ -277,6 +277,24 @@ export function formatUsage(usage: AssistantMessage["usage"]): string {
 }
 
 /**
+ * Format elapsed milliseconds into a human-readable string.
+ * Example: "⏱ Completed in 2m 34s"
+ */
+export function formatElapsed(ms: number): string {
+    const totalSeconds = Math.floor(ms / 1000);
+    const hours = Math.floor(totalSeconds / 3600);
+    const minutes = Math.floor((totalSeconds % 3600) / 60);
+    const seconds = totalSeconds % 60;
+
+    const parts: string[] = [];
+    if (hours > 0) parts.push(`${hours}h`);
+    if (minutes > 0 || hours > 0) parts.push(`${minutes}m`);
+    parts.push(`${seconds}s`);
+
+    return `⏱ Completed in ${parts.join(" ")}`;
+}
+
+/**
  * Build a markdown-formatted body for ntfy push notifications.
  * ntfy renders markdown when the `Markdown: yes` header is set.
  */
@@ -284,6 +302,7 @@ export interface NtfyBodyOptions {
     sessionName?: string;
     usage?: AssistantMessage["usage"];
     toolSummary?: string;
+    elapsedMs?: number;
 }
 
 export function buildNtfyBody(summary: string, options?: NtfyBodyOptions): string {
@@ -304,6 +323,11 @@ export function buildNtfyBody(summary: string, options?: NtfyBodyOptions): strin
     if (options?.toolSummary) {
         parts.push("");
         parts.push(options.toolSummary);
+    }
+
+    if (options?.elapsedMs !== undefined && options.elapsedMs > 0) {
+        parts.push("");
+        parts.push(formatElapsed(options.elapsedMs));
     }
 
     return parts.join("\n");
@@ -332,7 +356,14 @@ export function notify(title: string, body: string, sessionName?: string, ntfyOp
     notifyNtfy("Pi", ntfyBody, { priority: ntfyPriority });
 }
 
+// Module-level tracker for agent start time
+let agentStartTime: number | undefined;
+
 export default function (pi: ExtensionAPI) {
+    pi.on("agent_start", async () => {
+        agentStartTime = Date.now();
+    });
+
     pi.on("agent_end", async (event, ctx) => {
         // Only notify for interactive sessions (skip print mode / JSON mode)
         if (!ctx.hasUI) return;
@@ -349,10 +380,13 @@ export default function (pi: ExtensionAPI) {
         const summary = extractAssistantSummary(event.messages);
         const toolSummary = extractToolSummary(event.messages);
 
+        const elapsedMs = agentStartTime ? Date.now() - agentStartTime : undefined;
+
         notify(title, summary, sessionName ?? undefined, {
             usage: lastAssistant?.usage,
             toolSummary: toolSummary || undefined,
             stopReason: lastAssistant?.stopReason,
+            elapsedMs,
         });
     });
 }

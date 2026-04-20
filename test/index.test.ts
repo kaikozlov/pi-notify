@@ -5,6 +5,7 @@ import {
     extractAssistantSummary,
     extractToolSummary,
     mapStopReasonToPriority,
+    formatElapsed,
     buildNtfyBody,
     formatUsage,
     wrapForTmux,
@@ -188,6 +189,30 @@ describe("mapStopReasonToPriority", () => {
     });
 });
 
+// --- formatElapsed ---
+
+describe("formatElapsed", () => {
+    it("formats seconds only", () => {
+        assert.equal(formatElapsed(5000), "⏱ Completed in 5s");
+    });
+
+    it("formats minutes and seconds", () => {
+        assert.equal(formatElapsed(154000), "⏱ Completed in 2m 34s");
+    });
+
+    it("formats hours, minutes, and seconds", () => {
+        assert.equal(formatElapsed(3723000), "⏱ Completed in 1h 2m 3s");
+    });
+
+    it("shows 0m when only hours present", () => {
+        assert.equal(formatElapsed(3600000), "⏱ Completed in 1h 0m 0s");
+    });
+
+    it("formats sub-second as 0s", () => {
+        assert.equal(formatElapsed(500), "⏱ Completed in 0s");
+    });
+});
+
 // --- formatUsage ---
 
 describe("formatUsage", () => {
@@ -263,8 +288,9 @@ describe("buildNtfyBody", () => {
             sessionName: "Refactor",
             usage: { input: 1000, output: 247, cacheRead: 0, cacheWrite: 0, totalTokens: 1247, cost: { total: 0.003 } },
             toolSummary: "🔧 bash(2) edit(1)",
+            elapsedMs: 154000,
         });
-        assert.equal(body, "**Refactor**\n\nDone\n\n⚙️ 1,247 tokens • $0.003\n\n🔧 bash(2) edit(1)");
+        assert.equal(body, "**Refactor**\n\nDone\n\n⚙️ 1,247 tokens • $0.003\n\n🔧 bash(2) edit(1)\n\n⏱ Completed in 2m 34s");
     });
 });
 
