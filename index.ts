@@ -90,6 +90,7 @@ function notifyNtfy(title: string, body: string): void {
             "Title": title,
             "Priority": process.env.PI_NOTIFY_NTFY_PRIORITY?.trim() ?? "default",
             "Tags": process.env.PI_NOTIFY_NTFY_TAGS?.trim() ?? "white_check_mark",
+            "Markdown": "yes",
         };
 
         // Optional click action: open the terminal / pi session
@@ -211,6 +212,23 @@ export function extractAssistantSummary(messages: AgentMessage[]): string {
     return "Ready for input";
 }
 
+/**
+ * Build a markdown-formatted body for ntfy push notifications.
+ * ntfy renders markdown when the `Markdown: yes` header is set.
+ */
+export function buildNtfyBody(sessionName: string | undefined, summary: string): string {
+    const parts: string[] = [];
+
+    if (sessionName) {
+        parts.push(`**${sessionName}**`);
+        parts.push("");
+    }
+
+    parts.push(summary);
+
+    return parts.join("\n");
+}
+
 export function notify(title: string, body: string, sessionName?: string): void {
     const isIterm2 = process.env.TERM_PROGRAM === "iTerm.app" || Boolean(process.env.ITERM_SESSION_ID);
 
@@ -226,9 +244,8 @@ export function notify(title: string, body: string, sessionName?: string): void 
 
     runSoundHook();
 
-    // ntfy: put session context in the body for richer phone notifications.
-    // HTTP headers must be ASCII, so keep the header title simple.
-    const ntfyBody = sessionName ? `${sessionName}\n\n${body}` : body;
+    // ntfy: markdown-formatted body with session context.
+    const ntfyBody = buildNtfyBody(sessionName, body);
     notifyNtfy("Pi", ntfyBody);
 }
 

@@ -3,6 +3,7 @@ import assert from "node:assert/strict";
 import {
     truncate,
     extractAssistantSummary,
+    buildNtfyBody,
     wrapForTmux,
     notify,
     type AssistantMessage,
@@ -101,6 +102,23 @@ describe("extractAssistantSummary", () => {
             } as unknown as AgentMessage,
         ];
         assert.equal(extractAssistantSummary(msgs), "meaningful content");
+    });
+});
+
+// --- buildNtfyBody ---
+
+describe("buildNtfyBody", () => {
+    it("returns just summary when no session name", () => {
+        assert.equal(buildNtfyBody(undefined, "Task complete"), "Task complete");
+    });
+
+    it("includes bold session name with summary", () => {
+        const body = buildNtfyBody("Refactor auth", "Done refactoring");
+        assert.equal(body, "**Refactor auth**\n\nDone refactoring");
+    });
+
+    it("handles empty session name", () => {
+        assert.equal(buildNtfyBody("", "Summary text"), "Summary text");
     });
 });
 
