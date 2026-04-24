@@ -75,10 +75,8 @@ function notifyWindows(title: string, body: string): void {
  * Optionally set PI_NOTIFY_NTFY_TOKEN for access tokens:
  *   tk_abcdef123456
  *
- * The ntfy.sh API is a simple HTTP POST:
- *   - URL path = topic
- *   - Request body = message
- *   - Headers: Title, Priority, Tags, Actions
+ * Uses ntfy.sh JSON publish format (POST to root URL with topic in body).
+ * This avoids HTTP header encoding issues with Unicode characters (e.g. —, ⚠️).
  */
 /**
  * Resolve the click URL from env vars and optional CWD.
@@ -109,10 +107,10 @@ export function resolveClickUrl(cwd?: string): string | undefined {
 }
 
 /**
- * Build the ntfy Actions header value.
- * Supports multiple action buttons (ntfy allows up to 3).
+ * Build ntfy action buttons for JSON publish format.
+ * Returns an array of action objects (ntfy allows up to 3).
  */
-export function buildNtfyActions(cwd?: string): string | undefined {
+export function buildNtfyActionsJson(cwd?: string): Array<{ action: string; label: string; url: string }> {
     const actions: Array<{ action: string; label: string; url: string }> = [];
 
     // Primary: Open in IDE
@@ -134,10 +132,7 @@ export function buildNtfyActions(cwd?: string): string | undefined {
         }
     }
 
-    if (actions.length === 0) return undefined;
-
-    // ntfy Actions header format: JSON array
-    return JSON.stringify(actions);
+    return actions;
 }
 
 /**
@@ -161,19 +156,36 @@ function notifyNtfy(title: string, body: string, options?: { priority?: string; 
 
     try {
         const ntfyUrl = resolveNtfyUrl(rawNtfyUrl, options?.cwd);
-        const url = new URL(ntfyUrl);
-        const headers: Record<string, string> = {
-            "Title": title,
-            "Priority": options?.priority ?? process.env.PI_NOTIFY_NTFY_PRIORITY?.trim() ?? "default",
-            "Tags": options?.tags ?? process.env.PI_NOTIFY_NTFY_TAGS?.trim() ?? "white_check_mark",
-            "Markdown": "yes",
-        };
+        const parsed = new URL(ntfyUrl);
 
-        // Build action buttons from env and CWD
-        const actionsHeader = buildNtfyActions(options?.cwd);
-        if (actionsHeader) {
-            headers["Actions"] = actionsHeader;
+        // Build the topic from the URL path
+        const topic = parsed.pathname.slice(1); // strip leading /
+
+        // Map priority string to ntfy numeric priority (JSON format uses numbers)
+        const priorityStr = options?.priority ?? process.env.PI_NOTIFY_NTFY_PRIORITY?.trim() ?? "default";
+        const priorityMap: Record<string, number> = { min: 1, low: 2, default: 3, high: 4, urgent: 5 };
+        const priority = priorityMap[priorityStr] ?? 3;
+
+        // Build action buttons
+        const actions = buildNtfyActionsJson(options?.cwd);
+
+        // Build JSON body per ntfy docs: POST to root URL with topic in body
+        const jsonBody: Record<string, unknown> = {
+            topic,
+            message: body,
+            title,
+            priority,
+            tags: [options?.tags ?? process.env.PI_NOTIFY_NTFY_TAGS?.trim() ?? "white_check_mark"],
+            markdown: true,
+        };
+        if (actions.length > 0) {
+            jsonBody.actions = actions;
         }
+
+        // Build headers — only Content-Type and optional auth
+        const headers: Record<string, string> = {
+            "Content-Type": "application/json",
+        };
 
         // Optional auth token or basic auth
         const token = process.env.PI_NOTIFY_NTFY_TOKEN?.trim();
@@ -186,12 +198,13 @@ function notifyNtfy(title: string, body: string, options?: { priority?: string; 
             headers["Authorization"] = `Basic ${encoded}`;
         }
 
+        // POST to root URL (ntfy JSON format requires posting to root, not topic path)
+        const rootUrl = new URL(parsed.origin + "/");
         const { request } = require("node:http");
         const { request: secureRequest } = require("node:https");
-        const reqFn = url.protocol === "https:" ? secureRequest : request;
+        const reqFn = rootUrl.protocol === "https:" ? secureRequest : request;
 
-        const req = reqFn(url, { method: "POST", headers }, (res: import("node:http").IncomingMessage) => {
-            // Consume response to free the connection
+        const req = reqFn(rootUrl, { method: "POST", headers }, (res: import("node:http").IncomingMessage) => {
             res.resume();
         });
 
@@ -199,7 +212,7 @@ function notifyNtfy(title: string, body: string, options?: { priority?: string; 
             // Silently ignore ntfy errors — don't break the extension
         });
 
-        req.write(body);
+        req.write(JSON.stringify(jsonBody));
         req.end();
     } catch {
         // Silently ignore ntfy errors — don't break the extension
