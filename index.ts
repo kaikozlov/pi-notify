@@ -441,7 +441,7 @@ export type NotificationMode = "off" | "local" | "ntfy" | "all";
 const VALID_MODES: NotificationMode[] = ["off", "local", "ntfy", "all"];
 
 /** Module-level notification mode state. Reset on restart. */
-let notifyMode: NotificationMode = "all";
+let notifyMode: NotificationMode = "local";
 
 export function getNotifyMode(): NotificationMode {
     return notifyMode;
